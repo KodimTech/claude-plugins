@@ -1,0 +1,10 @@
+{
+  "name": "boost-client-dev",
+  "description": "Senior React/TypeScript developer assistant: fetches a Shortcut story and generates a detailed implementation plan following boost-client patterns.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Arkus Team"
+  },
+  "homepage": "https://github.com/KodimTech/claude-plugins",
+  "repository": "https://github.com/KodimTech/claude-plugins"
+}

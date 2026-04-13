@@ -12,6 +12,13 @@
       "source": "./boost-dev",
       "category": "development",
       "homepage": "https://github.com/KodimTech/claude-plugins"
+    },
+    {
+      "name": "boost-client-dev",
+      "description": "Senior React/TypeScript Developer para boost-client: genera planes de implementación TDD desde historias de Shortcut, con detección de dependencias de backend.",
+      "source": "./boost-client-dev",
+      "category": "development",
+      "homepage": "https://github.com/KodimTech/claude-plugins"
     }
   ]
 }
