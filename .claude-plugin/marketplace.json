@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "kodim",
+  "description": "Kodim Tech internal Claude Code plugins",
+  "owner": {
+    "name": "Kodim Tech"
+  },
+  "plugins": [
+    {
+      "name": "boost-dev",
+      "description": "Senior Rails Developer para boost-api: genera planes de implementación spec-driven desde historias de Shortcut.",
+      "source": "./boost-dev",
+      "category": "development",
+      "homepage": "https://github.com/KodimTech/claude-plugins"
+    }
+  ]
+}
