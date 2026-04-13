@@ -1,0 +1,10 @@
+{
+  "name": "boost-team",
+  "description": "Full-stack tech lead: coordinates backend and frontend agents to plan cross-repo stories together, defining the GraphQL contract before both teams start.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Arkus Team"
+  },
+  "homepage": "https://github.com/KodimTech/claude-plugins",
+  "repository": "https://github.com/KodimTech/claude-plugins"
+}
