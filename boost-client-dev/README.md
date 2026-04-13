@@ -14,25 +14,40 @@ El humano revisa el output antes de crear el PR. El plugin nunca hace commit.
 
 ## Flujo con backend (boost-api)
 
-Cuando una historia requiere cambios en **ambos** repos, el planner detecta las dependencias automáticamente:
+Cuando una historia requiere cambios en **ambos** repos, el planner puede analizar el PR de boost-api directamente para extraer los tipos y mutaciones reales — sin adivinar.
+
+### Con PR disponible (recomendado)
+
+```
+[boost-api] /boost-dev:plan <story> + /boost-dev:execute ...
+  → implementa backend + graphql:dump + abre PR
+
+[boost-client] /boost-client-dev:plan <story> <backend-pr-url>
+  → analiza el diff del PR con `gh pr diff`
+  → extrae mutations/types exactos del código real
+  → genera plan con "Backend GraphQL Surface" usando nombres y tipos verificados
+  → indica si el PR está abierto o mergeado
+
+[boost-client] /boost-client-dev:execute plan-sc-XXXXX.md <backend-pr-url>
+  → verifica que el PR esté mergeado (`gh pr view --json state`)
+  → si mergeado: corre `npm run codegen` y verifica que los tipos esperados aparezcan
+  → si abierto: se detiene y espera
+  → implementa frontend con tipos exactos del backend
+```
+
+### Sin PR (historia nueva, backend pendiente)
 
 ```
 [boost-client] /boost-client-dev:plan <story>
-  → detecta que necesita nuevas mutaciones/tipos en boost-api
-  → genera plan-sc-XXXXX.md con sección "Backend Changes Required"
-  → indica qué ejecutar en boost-api:
+  → detecta que faltan operaciones en src/graphql/types.ts
+  → pregunta por el PR URL; si no hay, documenta tipos esperados
+  → genera plan con sección "Backend GraphQL Surface (inferred)"
 
-[boost-api] /boost-dev:plan <story>
-  → genera plan del backend
+[boost-api] /boost-dev:plan <story> + /boost-dev:execute ...
+  → implementa backend
 
-[boost-api] /boost-dev:execute plan-sc-XXXXX.md
-  → implementa backend + GraphQL schema dump
-
-[boost-client] npm run codegen
-  → actualiza src/graphql/types.ts
-
-[boost-client] /boost-client-dev:execute plan-sc-XXXXX.md
-  → implementa frontend usando los tipos generados
+[boost-client] /boost-client-dev:execute plan-sc-XXXXX.md <backend-pr-url>
+  → verifica merge + codegen + ejecuta
 ```
 
 ---
@@ -75,26 +90,28 @@ claude plugin enable boost-client-dev@kodim
 
 ## Uso
 
-### Generar un plan
+### Generar un plan (solo historia)
 
 ```
 /boost-client-dev:plan https://app.shortcut.com/boost/story/46134/nombre-historia
 ```
 
-O con el ID directamente:
+El planner detecta si hay dependencias de backend. Si las hay, pregunta por el PR URL.
+
+### Generar un plan + analizar PR de backend
 
 ```
-/boost-client-dev:plan 46134
+/boost-client-dev:plan 46134 https://github.com/boost-legal/boost-api/pull/123
 ```
 
 El planner:
-1. Obtiene los detalles de la historia desde Shortcut
+1. Obtiene la historia de Shortcut
 2. Lee el contexto del proyecto (architecture, graphql, testing, styling)
-3. Detecta si se necesitan cambios en el backend (boost-api)
-4. Explora el codebase real para anclar el plan en código existente
-5. Muestra un análisis visible antes de escribir
-6. Genera `plan-sc-<ID>-<slug>.md` en tu directorio actual
-7. Si hay cambios de backend: indica exactamente qué mutations/types crear en boost-api
+3. Explora el codebase para anclar el plan en código existente
+4. Detecta si se necesitan operaciones que no están en `src/graphql/types.ts`
+5. Si hay PR: corre `gh pr diff` y extrae mutations/types exactos del código real
+6. Muestra análisis visible con estado del PR (open / merged)
+7. Genera `plan-sc-<ID>-<slug>.md` con tipos verificados del diff real
 
 ### Ejecutar un plan
 
@@ -102,18 +119,25 @@ El planner:
 /boost-client-dev:execute plan-sc-46134-nombre.md
 ```
 
+### Ejecutar verificando el PR de backend
+
+```
+/boost-client-dev:execute plan-sc-46134-nombre.md https://github.com/boost-legal/boost-api/pull/123
+```
+
 El executor:
-1. Lee el plan — si `Backend Required: Yes`, se detiene y verifica que esté completo
-2. Carga los archivos de contexto
-3. Lee todos los archivos que el plan indica
-4. Muestra el plan de ejecución antes de tocar nada
-5. Crea archivos `.graphql` y corre codegen si aplica
-6. Escribe los tests primero (fase RED — todos deben fallar)
-7. Implementa siguiendo el plan al pie de la letra
-8. Corre tests después de cada paso (máx. 3 intentos por fallo, luego se detiene)
-9. Corre Biome/ESLint en todos los archivos modificados
-10. Corre TypeScript check (`tsc --noEmit`)
-11. Genera un reporte final para el reviewer
+1. Verifica el estado del PR con `gh pr view --json state`
+2. Si mergeado: corre `npm run codegen` y confirma que los tipos del plan aparecen en `src/graphql/types.ts`
+3. Si no mergeado: se detiene y espera
+4. Carga contexto y lee archivos existentes
+5. Muestra el plan de ejecución antes de tocar nada
+6. Crea archivos `.graphql` del lado del cliente si aplica
+7. Escribe los tests primero (fase RED — todos deben fallar)
+8. Implementa siguiendo el plan al pie de la letra
+9. Corre tests después de cada paso (máx. 3 intentos por fallo, luego se detiene)
+10. Corre Biome/ESLint en todos los archivos modificados
+11. Corre `tsc --noEmit`
+12. Genera reporte final para el reviewer
 
 ---
 

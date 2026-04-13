@@ -1,48 +1,146 @@
 ---
-description: "Execute a boost-client implementation plan (.md file): write component tests (RED), implement, lint. Human reviews the output before creating a PR."
+description: "Execute a boost-client implementation plan (.md file): optionally verify the backend PR is merged, run codegen, write component tests (RED), implement, lint. Human reviews output before creating a PR."
 ---
 
 # Frontend Implementation Executor
 
 You are executing a pre-approved implementation plan. Your job is to write correct, tested, lint-clean React/TypeScript code. You do not commit. A human reviews everything you produce.
 
-**Input:** `$ARGUMENTS` — path to the plan `.md` file (e.g., `plan-sc-46134-add-invoices.md`)
+**Input:** `$ARGUMENTS`
+
+Two forms accepted:
+- `<plan-file>` — execute the plan (backend must already be ready if required)
+- `<plan-file> <backend-pr-url>` — execute after verifying PR state and running codegen
 
 ---
 
-## Step 1 — Read the plan
+## Step 1 — Parse arguments and read the plan
 
-Read the file at `$ARGUMENTS` in full. Extract and hold in memory:
+Split `$ARGUMENTS` into plan file path and optional PR URL (starts with `https://github.com/`).
+
+Read the plan file in full. Extract and hold in memory:
 
 - Branch name
-- Backend Required (yes/no)
+- `Backend Required` field value
+- Backend PR URL from the plan (if any — in the `Backend GraphQL Surface` section)
 - Files to Read Before Implementing
-- Files to Create
-- Files to Modify
+- Files to Create / Modify
 - Component Spec (props, behavior, layout)
-- Failure Conditions (condition → what the user sees)
-- Test Scenarios (exact test descriptions)
-- Implementation Steps (ordered)
+- Failure Conditions (exact user-visible text)
+- Test Scenarios
+- Implementation Steps
+- Checklist
 
-If any of these sections is missing or too vague to implement without guessing, **stop immediately** and tell the user which section needs more detail before proceeding.
+If any section is too vague to implement without guessing, **stop** and tell the user which section needs more detail.
 
-If `Backend Required: Yes`, **stop immediately** and output:
+---
+
+## Step 2 — Resolve backend status
+
+Determine the PR URL to check. Priority:
+1. PR URL from `$ARGUMENTS` (user-provided at runtime)
+2. PR URL extracted from the plan's `Backend Required` field (e.g., `PR #123`)
+
+### Case A — Backend Required: No
+
+Skip to Step 3.
+
+### Case B — Backend Required: Yes + PR URL available
+
+```bash
+gh pr view <PR-URL> --json number,title,state,mergedAt
+```
+
+**If `state` is `MERGED`:**
+
+Output:
+```
+✅ Backend PR #[N] is merged. Running codegen to sync types...
+```
+
+Run codegen (Step 3a below).
+
+**If `state` is `OPEN` or `CLOSED` without merge:**
+
+Output:
+```
+⛔ Backend PR #[N] is not merged yet.
+
+  PR: [title]
+  State: [OPEN / CLOSED]
+  URL: [url]
+
+The frontend executor cannot run until this PR is merged and codegen is run.
+Come back and re-run once it's merged:
+
+  /boost-client-dev:execute [plan-file] [pr-url]
+```
+
+**Stop. Do not proceed.**
+
+### Case C — Backend Required: Yes + NO PR URL available
+
+Output:
+```
+⛔ This plan requires backend changes in boost-api.
+
+Provide the backend PR URL to verify it's merged before executing:
+
+  /boost-client-dev:execute [plan-file] https://github.com/boost-legal/boost-api/pull/N
+
+Or, if you've already run codegen manually, confirm the required types
+exist in src/graphql/types.ts:
+```
+
+```bash
+grep -n "use.*Invoice.*Mutation\|use.*Invoice.*Query" src/graphql/types.ts
+```
 
 ```
-⛔ This plan requires backend changes in boost-api that must be merged first.
+If the types are present, you can proceed without the PR URL — just re-run
+without it and confirm when prompted.
+```
 
-Verify:
-1. The backend PR is merged
-2. npm run codegen has been run
-3. The required types appear in src/graphql/types.ts:
-   - [list types/mutations from the Backend Changes Required section]
+**Stop. Do not proceed until resolved.**
 
-Once verified, re-run this command.
+---
+
+## Step 3a — Run codegen (only when backend PR is confirmed merged)
+
+```bash
+npm run codegen
+```
+
+Verify the types from the plan's `Backend GraphQL Surface` section now exist:
+
+```bash
+grep -n "useCreateInvoiceMutation\|InvoiceStatus\|InvoiceFieldsFragment" src/graphql/types.ts
+```
+
+For each expected hook/type from the plan:
+- If present: confirm with `✅ useCreateInvoiceMutation — found`
+- If missing: **STOP** and report:
+
+```
+⛔ Codegen ran but expected types are missing from src/graphql/types.ts:
+  - useCreateInvoiceMutation — NOT FOUND
+  - InvoiceStatus — NOT FOUND
+
+This means either:
+  1. The backend PR introduced different names than the plan expected
+  2. The .graphql operation files in boost-client need updating to match
+
+Compare the plan's Backend GraphQL Surface section with the actual
+merged PR diff:
+  gh pr diff <PR-URL> -- "*.graphql" "*schema*"
+
+Update the .graphql files to match the exact names in the backend,
+then re-run codegen.
 ```
 
 ---
 
-## Step 2 — Load context
+## Step 4 — Load context
 
 Read:
 1. `${CLAUDE_PLUGIN_ROOT}/context/architecture.md`
@@ -52,27 +150,27 @@ Read:
 
 ---
 
-## Step 3 — Read existing files
+## Step 5 — Read existing files
 
 Read every file listed in **Files to Read Before Implementing**.
-Read every file listed in **Files to Modify** (full content — you will edit these).
+Read every file listed in **Files to Modify** (full content).
 
-Also grep for similar test files to understand the project's test patterns:
+Also find a similar test file for pattern reference:
+
 ```bash
-# Find a similar test file for reference
 find src -name "*.test.tsx" -path "*<domain>*" | head -3
 ```
 
-Do not skip this step.
-
 ---
 
-## Step 4 — Show execution plan
+## Step 6 — Show execution plan
 
-Output this before touching any file:
+Output before touching any file:
 
 ```
 ### Execution Plan
+
+Backend: [not required / PR #N verified merged — codegen ran]
 
 Files to create:
   - [list]
@@ -80,8 +178,7 @@ Files to create:
 Files to modify:
   - [list with exact change]
 
-New GraphQL files: [yes/no — list .graphql files to create]
-Codegen needed: [yes/no]
+New .graphql client files: [list or "none"]
 
 Test files to write first:
   - [list]
@@ -91,159 +188,132 @@ Test command:
 
 Lint command:
   npx biome check [file paths]
-  # or: npx eslint [file paths]
 ```
 
-Proceed immediately — no waiting for approval.
+Proceed immediately.
 
 ---
 
-## Step 5 — Create GraphQL files (if needed)
+## Step 7 — Create client-side .graphql files (if any)
 
-If the plan includes new `.graphql` operation files, create them first:
+If the plan lists new `.graphql` operation files to create (client-side mutations/queries/fragments), create them now using the exact names from the **Backend GraphQL Surface** section.
 
-```bash
-# Create the mutation/query file
-# Example: src/graphql/mutations/invoices/create_invoice.graphql
-```
+If codegen wasn't already run (Step 3a didn't run), run it now:
 
-Then run codegen:
 ```bash
 npm run codegen
 ```
 
-Verify `src/graphql/types.ts` now contains the generated hook (e.g., `useCreateInvoiceMutation`). If codegen fails, fix the GraphQL syntax before proceeding.
+Verify the generated hooks are present in `src/graphql/types.ts`.
 
 ---
 
-## Step 6 — Write tests first (RED phase)
+## Step 8 — Write tests first (RED phase)
 
-Write every test file from the **Test Scenarios** section of the plan.
+Write every test file from the **Test Scenarios** section.
 
 Rules:
-- Use `MockedProvider` for Apollo — never mock individual hooks
-- Use `userEvent.setup()` for interactions — not `fireEvent`
-- Use `findBy*` queries for async content — not `waitFor` + `getBy*`
-- Test user-visible behavior — not implementation details
-- Exact text assertions: use the exact strings from Failure Conditions in the plan
-- Every data-fetching component must test: loading state, loaded state, empty state, error state
+- `MockedProvider` for Apollo — mock shapes must match the Backend GraphQL Surface types exactly
+- `userEvent.setup()` for interactions — never `fireEvent`
+- `findBy*` for async — never `waitFor` + `getBy*`
+- Test user-visible behavior only — not implementation details
+- Exact text in assertions — use strings from Failure Conditions verbatim
+- Every data-fetching component must cover: loading, loaded, empty, error
 
-After writing tests, run them:
+Run:
+```bash
+npm test -- <test-file-path> --watchAll=false
+```
+
+**Expected: ALL FAIL.** If any pass before implementation, flag it.
+
+---
+
+## Step 9 — Implement
+
+Follow **Implementation Steps** in order. For each:
+1. Create/edit the specified files
+2. Apply ALL behavior from Component Spec
+3. Use EXACT user-visible text from Failure Conditions for error/empty states
+4. Use hook names exactly as they appear in `src/graphql/types.ts`
+5. Tachyons + boost-* classes only — never inline styles, never Tailwind
+6. Icon names only from `icons.global.less`
+7. Only existing component library (BoostButton, LMIcon, etc.)
+8. Run tests after each step
 
 ```bash
 npm test -- <test-file-path> --watchAll=false
 ```
 
-**Expected result: ALL FAIL (or "cannot find module" for files not yet created).** If any pass before implementation, flag it — either the test is wrong or the feature already exists.
+**Failure handling:** max 3 attempts per failing test, then **STOP** and report:
+- Exact failing test
+- Full error output
+- What you tried
+- What you believe is wrong
+- What the human needs to provide to continue
 
 ---
 
-## Step 7 — Implement
-
-Follow the **Implementation Steps** from the plan in order.
-
-For each step:
-1. Create/edit the files specified
-2. Apply ALL behavior described in the Component Spec
-3. Use the EXACT user-visible messages from Failure Conditions for every error state
-4. Apply ALL styling with Tachyons + boost-* classes — never inline styles
-5. Use ONLY icon names from the styling context — verify before using
-6. Use ONLY existing component library components (BoostButton, LMIcon, etc.)
-7. Run tests after each step
-
-```bash
-npm test -- <test-file-path> --watchAll=false
-```
-
-**Failure handling:**
-- Tests fail → read the full error output → attempt fix → re-run (max 3 attempts)
-- After 3 attempts on the same failure: **STOP**. Report:
-  - The exact failing test
-  - The error output
-  - What you tried
-  - What you believe is wrong
-  - What you need from the human to continue
-
-Never loop blindly. Three attempts and stop.
-
----
-
-## Step 8 — Run full test suite for touched files
-
-Once all individual tests pass:
+## Step 10 — Run domain-wide tests
 
 ```bash
 npm test -- --testPathPattern="<domain>" --watchAll=false
 ```
 
-If new failures appear that weren't there before, fix them. Same 3-attempt rule applies.
+Fix any regressions (same 3-attempt rule).
 
 ---
 
-## Step 9 — Lint
-
-Run lint on every file you created or modified:
+## Step 11 — Lint
 
 ```bash
 npx biome check --write src/<paths>
-# If Biome doesn't cover it:
 npx eslint src/<paths> --fix
 ```
 
-Then verify no remaining errors:
+Verify clean:
 ```bash
 npx biome check src/<paths>
-npx eslint src/<paths>
 ```
-
-If a lint rule cannot be auto-fixed:
-- Fix manually if the fix is clear
-- Add an inline disable comment with an explanation if it cannot be fixed without breaking behavior
-- Never disable rules wholesale
 
 ---
 
-## Step 10 — TypeScript check
-
-Run TypeScript on the modified files to catch type errors not caught by tests:
+## Step 12 — TypeScript check
 
 ```bash
 npx tsc --noEmit --project tsconfig.json 2>&1 | grep -E "error TS" | head -20
 ```
 
-Fix all type errors before proceeding. Never use `as any` to suppress errors — fix the underlying type issue.
+Fix all errors. Never use `as any`.
 
 ---
 
-## Step 11 — Final report
-
-Output a summary for the human reviewer:
+## Step 13 — Final report
 
 ```
 ### Execution Report
 
-Branch: [branch name from plan]
+Branch: [branch name]
+
+Backend: [not required / PR #N merged — codegen ran — N new types]
 
 Files created:
   - path/to/component/index.tsx
   - path/to/component/__tests__/component.test.tsx
+  - src/graphql/mutations/<domain>/create_invoice.graphql
 
 Files modified:
-  - path/to/parent/index.tsx (what changed)
+  - path/to/parent/index.tsx (added route for new layer)
 
-New GraphQL files:
-  - src/graphql/mutations/invoices/create_invoice.graphql
-
-Codegen: [run / not needed]
+Codegen: [ran — N new hooks generated / not needed]
 Tests: X passing, 0 failing
 Lint (Biome): clean
 TypeScript: no errors
 
 Manual review recommended:
-  - [anything the executor is not 100% confident about]
-  - [edge cases not covered by tests]
+  - [styling decisions needing visual verification]
   - [any deviation from the plan and why]
-  - [styling decisions that need visual verification]
+  - [edge cases not covered by tests]
 
 To run tests locally:
   npm test -- <paths> --watchAll=false
@@ -256,12 +326,12 @@ To verify lint:
 
 ## Hard rules
 
-- **Never commit.** Human creates the PR.
-- **Never use inline styles** for properties that have Tachyons equivalents.
-- **Never use Tailwind classes.** This is a Tachyons project.
-- **Never invent icon names** — only use names verified in `icons.global.less`.
-- **Never create a custom Button, Icon, or Input component** — use BoostButton, LMIcon, BoostInput.
-- **Never use `as any`** — fix the underlying type issue.
-- **Never skip a test scenario** from the Test Scenarios section.
-- **Stop at 3 test failures** on the same error — ask the human, don't loop.
-- **Never proceed if Backend Required: Yes** — backend must be merged first.
+- **Never commit.**
+- **Never proceed with Backend Required: Yes** until PR is confirmed merged (or types manually verified).
+- **Never use inline styles** for Tachyons-equivalent properties.
+- **Never use Tailwind classes.**
+- **Never invent icon names.**
+- **Never create custom Button/Icon/Input** — use BoostButton, LMIcon, BoostInput.
+- **Never use `as any`.**
+- **Never skip a test scenario.**
+- **Stop at 3 failures** on the same test — don't loop.
