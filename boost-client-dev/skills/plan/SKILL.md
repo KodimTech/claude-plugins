@@ -1,5 +1,5 @@
 ---
-description: "Fetch a Shortcut story by URL or ID, explore the boost-client codebase, and generate a high-detail implementation plan (.md). When backend changes are needed, fetches and analyzes the boost-api PR to extract the real mutations/types — no guessing."
+description: "Fetch a Shortcut story by URL or ID, explore the boost-client codebase, and generate a high-detail implementation plan (.md). When backend changes are needed, the backend PR URL is required — no planning against guessed types."
 ---
 
 # Frontend Implementation Planner
@@ -76,20 +76,25 @@ From the diff, extract and hold in memory:
 
 ### If NO PR URL was provided AND `BACKEND_REQUIRED = true`:
 
-Output:
 ```
-⚠️  Backend changes are required for this story.
+⛔ This story requires backend changes — a boost-api PR URL is required.
 
-Has the boost-api PR been created? Provide the URL to analyze the exact
-implementation and build a precise frontend plan:
+Planning against guessed types produces a plan that breaks at execution
+when codegen generates different names than expected.
 
-  Example: /boost-client-dev:plan 46134 https://github.com/boost-legal/boost-api/pull/123
+Provide the backend PR URL:
+  /boost-client-dev:plan [story] https://github.com/boost-legal/boost-api/pull/N
 
-Continuing without PR analysis — the plan will document expected changes
-based on story description. Types may differ from actual backend implementation.
+If the backend PR doesn't exist yet:
+  1. Plan the backend first: /boost-dev:plan [story] (in boost-api)
+  2. Execute and open the PR: /boost-dev:execute plan-sc-[ID]-[slug].md
+  3. Come back with the PR URL: /boost-client-dev:plan [story] <pr-url>
+
+Or let boost-team coordinate both in parallel:
+  /boost-team:plan-full [story]
 ```
 
-Then proceed to Step 5 using story description to infer expected types.
+**Stop. Do not generate a plan.**
 
 ### If `BACKEND_REQUIRED = false`:
 

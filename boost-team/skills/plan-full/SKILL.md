@@ -1,23 +1,38 @@
 ---
-description: "Full-stack planner: fetches a Shortcut story, discovers both repos, defines the GraphQL contract, and launches backend and frontend planners in parallel — each generating its own plan file."
+description: "Full-stack coordinator: discovers both repos, defines the GraphQL contract, then delegates to the existing boost-dev:plan and boost-client-dev:plan skills in parallel. No planning logic is duplicated here."
 ---
 
-# Full-Stack Implementation Planner
+# Full-Stack Plan Coordinator
 
-You are the tech lead coordinating backend and frontend planning for a single story.
-Two specialized agents will work in parallel. Your job is to set up the contract between
-them before they start, collect their output, and produce a clear execution order.
+You are the tech lead. Your job is coordination — not planning.
+The actual planning logic lives in `boost-dev` and `boost-client-dev`.
+This skill finds those skills at runtime, adds the cross-repo contract layer,
+and launches them in parallel.
 
 **Input:** `$ARGUMENTS` — Shortcut story URL or ID
 
 ---
 
-## Step 1 — Fetch the story
+## Step 1 — Verify dependencies
 
-- If URL: extract numeric ID from segment after `/story/`
-- If number: use directly
-- Call `stories-get-by-id` with `story_public_id: <ID>`
-- Read: `name`, `description`, `story_type`, `labels`, `tasks`, `comments`
+Find the installed plan skills:
+
+```bash
+BACKEND_SKILL=$(find ~/.claude -path "*/boost-dev/skills/plan/SKILL.md" 2>/dev/null | head -1)
+FRONTEND_SKILL=$(find ~/.claude -path "*/boost-client-dev/skills/plan/SKILL.md" 2>/dev/null | head -1)
+
+echo "backend skill: $BACKEND_SKILL"
+echo "frontend skill: $FRONTEND_SKILL"
+```
+
+If either is missing:
+```
+⛔ Missing required plugins:
+  [boost-dev not found]      → claude plugin install boost-dev@kodim
+  [boost-client-dev not found] → claude plugin install boost-client-dev@kodim
+```
+
+Read both skill files in full — their instructions will be passed to the subagents.
 
 ---
 
@@ -27,243 +42,190 @@ them before they start, collect their output, and produce a clear execution orde
 PARENT=$(dirname $(pwd))
 BACKEND_PATH="$PARENT/boost-api"
 FRONTEND_PATH="$PARENT/boost-client"
+
 ls "$BACKEND_PATH" > /dev/null 2>&1 && echo "backend: OK" || echo "backend: MISSING"
 ls "$FRONTEND_PATH" > /dev/null 2>&1 && echo "frontend: OK" || echo "frontend: MISSING"
 ```
 
-If either repo is missing, stop:
-```
-⛔ Cannot find [boost-api / boost-client] at $PARENT.
-
-Expected layout:
-  <parent>/
-  ├── boost-api/
-  └── boost-client/
-
-Run this skill from either repo directory.
-```
+If either repo is missing, stop and tell the user.
 
 ---
 
-## Step 3 — Determine story scope
+## Step 3 — Fetch the story and determine scope
 
-Based on the story, classify what layers are touched:
+- If URL: extract numeric ID from segment after `/story/`
+- Call `stories-get-by-id` with `story_public_id: <ID>`
+- Read: `name`, `description`, `story_type`, `labels`, `tasks`, `comments`
 
-| Layer | Backend (boost-api) | Frontend (boost-client) |
-|-------|--------------------|-----------------------|
-| Data model / DB | ✓ | — |
-| Business logic (interactors) | ✓ | — |
-| GraphQL mutations / queries | ✓ | ✓ (codegen consumer) |
-| UI components / hooks | — | ✓ |
-| Redux state | — | ✓ |
-
-Determine: **backend-only / frontend-only / full-stack**
-
-- If **backend-only**: skip to Step 4a (backend agent only)
-- If **frontend-only**: skip to Step 4b (frontend agent only)
-- If **full-stack**: proceed to Step 4 (both agents)
+Determine which layers are affected:
+- **backend-only** → only `boost-dev:plan`
+- **frontend-only** → only `boost-client-dev:plan`
+- **full-stack** → both in parallel
 
 ---
 
 ## Step 4 — Define the GraphQL contract (full-stack only)
 
-Before launching the agents, define the interface between them.
-This prevents the backend and frontend from independently inventing incompatible names.
+This is the only unique contribution `boost-team` makes.
+Before the agents start, establish the names that both sides will use.
 
-Explore the existing schema in boost-api to anchor the contract:
+Explore boost-api to anchor naming conventions:
 
 ```bash
-# Find existing related mutations/types
-grep -r "<feature-keyword>" "$BACKEND_PATH/app/graphql/" --include="*.rb" -l
-grep -r "<feature-keyword>" "$BACKEND_PATH/app/graphql/" --include="*.graphql" -l 2>/dev/null
+# Find existing mutations in the same domain for naming reference
+grep -r "<feature-keyword>" "$BACKEND_PATH/app/graphql/" --include="*.rb" -l 2>/dev/null | head -5
 ```
 
-Read 1–2 existing mutation files to understand naming conventions.
+Read 1 existing mutation file to match the naming style.
 
-Then define the proposed contract:
+Then define:
 
 ```
-### Proposed GraphQL Contract
+### GraphQL Contract
 
 Mutations:
-  create<Entity>(arg1: Type!, arg2: Type): EntityType!
-  update<Entity>(id: ID!, arg1: Type): EntityType
-  delete<Entity>(id: ID!): EntityType
+  <camelCase name>(<argName>: <Type>!): <ReturnType>!
 
 Types:
   type <Entity> {
     id: ID!
-    field1: Type!
-    field2: Type
+    <field>: <Type>!
     createdAt: ISO8601DateTime!
   }
 
 Enums (if any):
-  enum <Entity>Status { pending active archived }
+  enum <Entity>Status { ... }
 ```
 
-This contract will be passed to both agents so they align on the same names.
-Agents may propose adjustments — those must be flagged in the final summary.
+This contract will be injected into both agent prompts so they agree on names
+before writing a single line of code.
 
 ---
 
 ## Step 5 — Launch agents in parallel
 
-Spawn both agents simultaneously using the Agent tool with two calls in a single message.
+Spawn both agents simultaneously (two Agent tool calls in a single message).
 
-### Backend Agent prompt
+### Backend agent prompt
 
 ```
-You are boost-dev:senior-rails-dev, a Senior Rails Developer working on boost-api.
+You are boost-dev:senior-rails-dev.
 
 Your target repository is: $BACKEND_PATH
-Use absolute paths for ALL file operations.
+Use absolute paths for ALL file operations (Read, Glob, Grep, Bash).
 
-Story: [story title]
-Story description: [full description]
-SC story ID: [ID]
-Git username (for branch name): [git config user.name or ask]
+Story to plan:
+  ID: [story ID]
+  Title: [title]
+  Description: [full description]
 
-Proposed GraphQL contract to implement:
-[paste the contract from Step 4]
+GraphQL contract agreed with the frontend team:
+[paste contract from Step 4]
 
-Your task:
-1. Read $BACKEND_PATH/${CLAUDE_PLUGIN_ROOT relative to boost-api}/context/architecture.md
-   Actually read these context files using absolute paths:
-   - Look for context files in the boost-dev plugin: find ~/.claude -name "architecture.md" -path "*boost-dev*"
-2. Explore the boost-api codebase at $BACKEND_PATH using absolute paths
-3. Generate a complete implementation plan following the boost-dev patterns:
-   - Interactors, GraphQL mutations, RSpec specs, migrations
-   - Use the proposed GraphQL contract above — flag any deviations
-4. Save the plan as: $BACKEND_PATH/plan-sc-[ID]-[slug].md
-5. Return:
-   - Plan file path
-   - Final GraphQL surface (mutations/types as you plan to implement them — may differ from proposal)
-   - Any deviations from the proposed contract and why
-   - Complexity estimate and risk flags
+Instructions: Follow the plan skill below exactly, using the story and contract above
+as your input. Save the plan to: $BACKEND_PATH/plan-sc-[ID]-[slug].md
+
+--- BEGIN PLAN SKILL ---
+[full content of $BACKEND_SKILL]
+--- END PLAN SKILL ---
+
+Return when done:
+  - Plan file absolute path
+  - Final GraphQL surface (may differ from contract — flag deviations)
+  - Key risks
 ```
 
-### Frontend Agent prompt
+### Frontend agent prompt
 
 ```
-You are boost-client-dev:senior-react-dev, a Senior React/TypeScript Developer working on boost-client.
+You are boost-client-dev:senior-react-dev.
 
 Your target repository is: $FRONTEND_PATH
-Use absolute paths for ALL file operations.
+Use absolute paths for ALL file operations (Read, Glob, Grep, Bash).
 
-Story: [story title]
-Story description: [full description]
-SC story ID: [ID]
-Git username (for branch name): [git config user.name or ask]
+Story to plan:
+  ID: [story ID]
+  Title: [title]
+  Description: [full description]
 
-Expected GraphQL contract (to be implemented by backend — backend PR not available yet):
-[paste the contract from Step 4]
+GraphQL contract (to be implemented by backend — PR not available yet):
+[paste contract from Step 4]
 
-IMPORTANT: The backend PR does not exist yet. The frontend plan will be based on the
-proposed contract. The executor MUST verify against the real backend PR before running.
-Mark plan as: Backend Required: Yes — no PR yet
+The backend PR does not exist yet. Mark the plan: Backend Required: Yes — no PR yet.
+The executor will require the backend PR URL before running.
 
-Your task:
-1. Read context files from the boost-client-dev plugin (find them with: find ~/.claude -name "architecture.md" -path "*boost-client-dev*")
-2. Explore the boost-client codebase at $FRONTEND_PATH using absolute paths
-3. Generate a complete frontend plan:
-   - React components, Apollo hooks, tests (Jest + Testing Library), Tachyons styling
-   - Reference the proposed contract for hook names and types
-   - Note clearly: "types are proposed — confirm against backend PR before executing"
-4. Save the plan as: $FRONTEND_PATH/plan-sc-[ID]-[slug].md
-5. Return:
-   - Plan file path
-   - Which GraphQL operations it expects to consume
-   - Any frontend-side questions about the contract (field names, error messages, etc.)
-   - Complexity estimate
+Instructions: Follow the plan skill below exactly, using the story and contract above
+as your input. Save the plan to: $FRONTEND_PATH/plan-sc-[ID]-[slug].md
+
+--- BEGIN PLAN SKILL ---
+[full content of $FRONTEND_SKILL]
+--- END PLAN SKILL ---
+
+Return when done:
+  - Plan file absolute path
+  - GraphQL operations expected from backend
+  - Any contract questions (field names, error messages, etc.)
+  - Key risks
 ```
 
 ---
 
-## Step 6 — Collect agent results and resolve conflicts
+## Step 6 — Resolve contract conflicts
 
-After both agents complete, read their outputs.
+After both agents complete, compare:
+- Did the backend agent use different names than the contract?
+- Did the frontend agent expect fields the backend didn't include?
 
-Check for contract mismatches:
-- Did the backend agent use different mutation names than proposed?
-- Did the frontend agent expect fields that the backend didn't include?
-- Any incompatible argument names?
-
-If there are mismatches, update the relevant plan file(s) to align them.
+If there are mismatches, update the affected plan file(s) to align them.
+Document any resolved conflicts in the final summary.
 
 ---
 
 ## Step 7 — Output coordination summary
 
 ```
-### Full-Stack Plan Summary
-
-Story: [SC-ID] — [Title]
+### Full-Stack Plan — SC-[ID]: [Title]
 
 ─────────────────────────────────────────────
-BACKEND PLAN
+BACKEND  →  $BACKEND_PATH/plan-sc-[ID]-[slug].md
 ─────────────────────────────────────────────
-File: $BACKEND_PATH/plan-sc-[ID]-[slug].md
-Branch: [backend branch name]
-Complexity: [Low / Medium / High]
-
-GraphQL surface (final):
-  [list of mutations and types the backend will implement]
-
-Key risks:
-  - [anything flagged by backend agent]
+Branch: [branch]   Complexity: [Low/Med/High]
+GraphQL surface: [list of mutations/types]
+Risks: [from backend agent]
 
 ─────────────────────────────────────────────
-FRONTEND PLAN
+FRONTEND  →  $FRONTEND_PATH/plan-sc-[ID]-[slug].md
 ─────────────────────────────────────────────
-File: $FRONTEND_PATH/plan-sc-[ID]-[slug].md
-Branch: [frontend branch name]
-Complexity: [Low / Medium / High]
-
-Consumes:
-  [list of mutations/hooks the frontend expects]
-
-Key risks:
-  - [anything flagged by frontend agent]
+Branch: [branch]   Complexity: [Low/Med/High]
+Consumes: [list of hooks/operations]
+Risks: [from frontend agent]
 
 ─────────────────────────────────────────────
-CONTRACT
+CONTRACT  (agreed — [N deviations resolved / clean])
 ─────────────────────────────────────────────
-[Final agreed GraphQL mutations/types — both agents aligned]
-
-Deviations from proposal:
-  [any changes the agents made and why — "none" if clean]
+[final mutations/types both sides aligned on]
 
 ─────────────────────────────────────────────
 EXECUTION ORDER
 ─────────────────────────────────────────────
-
-1. Backend:
-   cd $BACKEND_PATH
-   git checkout -b [backend branch]
+1. cd $BACKEND_PATH
    /boost-dev:execute plan-sc-[ID]-[slug].md
-   → open PR when done
+   → tests green → rubocop clean → open PR
 
-2. Frontend (after backend PR is merged):
-   cd $FRONTEND_PATH
-   git checkout -b [frontend branch]
+2. cd $FRONTEND_PATH
    /boost-client-dev:execute plan-sc-[ID]-[slug].md <backend-pr-url>
-   → executor will verify PR state, run codegen, implement
+   → verifies PR merged → codegen → tests → lint
 
 ─────────────────────────────────────────────
 OPEN QUESTIONS
 ─────────────────────────────────────────────
-[Anything neither agent could resolve — needs human input before executing]
+[Blockers neither agent could resolve — need human input]
 ```
 
 ---
 
-## Step 4a — Backend-only story
+## Scope shortcuts
 
-If the story only touches the backend, launch only the backend agent (Step 5 backend prompt, without contract section) and skip Step 4/frontend agent/contract.
+**Backend-only:** Launch only the backend agent (Step 5), skip contract and frontend sections.
 
----
-
-## Step 4b — Frontend-only story
-
-If the story only touches the frontend, launch only the frontend agent (Step 5 frontend prompt) without the contract concern. Mark `Backend Required: No` in the prompt.
+**Frontend-only:** Launch only the frontend agent (Step 5), skip contract. Pass `Backend Required: No` in the prompt.
