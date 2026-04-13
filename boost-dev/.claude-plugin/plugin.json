@@ -1,5 +1,5 @@
 {
-  "name": "rails-planner",
+  "name": "boost-dev",
   "description": "Senior Rails Developer assistant: fetches a Shortcut story and generates a detailed implementation plan following boost-api patterns.",
   "version": "1.0.0",
   "author": {

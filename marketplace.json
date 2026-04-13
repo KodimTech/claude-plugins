@@ -1,10 +1,10 @@
 {
   "plugins": [
     {
-      "id": "rails-planner",
-      "source": "./rails-planner",
-      "name": "Rails Planner",
-      "description": "Senior Rails Developer: fetches a Shortcut story and generates a spec-driven implementation plan following boost-api patterns.",
+      "id": "boost-dev",
+      "source": "./boost-dev",
+      "name": "Boost Dev",
+      "description": "Senior Rails Developer para boost-api: genera planes de implementación spec-driven desde historias de Shortcut.",
       "version": "1.0.0",
       "author": "Arkus Team"
     }
