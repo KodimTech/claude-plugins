@@ -19,6 +19,13 @@
       "source": "./boost-client-dev",
       "category": "development",
       "homepage": "https://github.com/KodimTech/claude-plugins"
+    },
+    {
+      "name": "boost-team",
+      "description": "Tech lead full-stack: coordina boost-dev y boost-client-dev en paralelo para planificar historias cross-repo, define el contrato GraphQL y produce el orden de ejecución.",
+      "source": "./boost-team",
+      "category": "development",
+      "homepage": "https://github.com/KodimTech/claude-plugins"
     }
   ]
 }
