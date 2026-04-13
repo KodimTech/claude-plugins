@@ -1,0 +1,10 @@
+{
+  "name": "rails-planner",
+  "description": "Senior Rails Developer assistant: fetches a Shortcut story and generates a detailed implementation plan following boost-api patterns.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Arkus Team"
+  },
+  "homepage": "https://github.com/KodimTech/claude-plugins",
+  "repository": "https://github.com/KodimTech/claude-plugins"
+}
