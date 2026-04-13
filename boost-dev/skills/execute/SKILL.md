@@ -1,5 +1,5 @@
 ---
-description: Execute a boost-dev implementation plan (.md file): write specs, implement, run tests, fix rubocop. Human reviews the output before creating a PR.
+description: "Execute a boost-dev implementation plan (.md file): write specs, implement, run tests, fix rubocop. Human reviews the output before creating a PR."
 ---
 
 # Implementation Executor
