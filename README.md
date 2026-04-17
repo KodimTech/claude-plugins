@@ -1,4 +1,4 @@
-# KodimTech Claude Plugins
+# Lawmatics Claude Plugins
 
 Plugins de Claude Code para el equipo de Boost. Cada plugin actúa como un agente especializado que lee historias de Shortcut, explora el codebase real, y genera planes de implementación detallados listos para ejecutar en modo TDD.
 
